@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+import { apiFetch, Challenge } from "@/lib/api";
+
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,54 +15,123 @@ import {
 } from "lucide-react";
 
 export default function CreateChallenge() {
+  const router = useRouter();
+
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
+
   const [analyzed, setAnalyzed] = useState(false);
   const [generated, setGenerated] = useState(false);
 
-  function analyzeProblem() {
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
+
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+
+  async function analyzeProblem() {
     if (!description.trim()) return;
 
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      setLoading(true);
+
+      const result = await apiFetch<Challenge>("/api/challenges", {
+        method: "POST",
+        body: JSON.stringify({
+          description,
+        }),
+      });
+
+      setChallenge(result);
       setAnalyzed(true);
-    }, 1200);
+    } catch (error) {
+      console.error(error);
+      alert("Could not analyze the challenge.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-function generateChallenge() {
-  setLoading(true);
+  async function generateChallenge() {
+    if (!challenge) return;
 
-  setTimeout(() => {
-    setLoading(false);
-    setGenerated(true);
-  }, 1200);
-}
+    try {
+      setLoading(true);
+
+      await apiFetch<Challenge>(
+        `/api/challenges/${challenge.id}/answers`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            answers: challenge.questions.map((question) => ({
+              question_id: question.id,
+              answer: answers[question.id] || "",
+            })),
+          }),
+        }
+      );
+
+      const generatedChallenge = await apiFetch<Challenge>(
+        `/api/challenges/${challenge.id}/generate`,
+        {
+          method: "POST",
+        }
+      );
+
+      setChallenge(generatedChallenge);
+      setGenerated(true);
+    } catch (error) {
+      console.error(error);
+      alert("Could not generate the challenge.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function publishChallenge() {
+    if (!challenge) return;
+
+    try {
+      setLoading(true);
+
+      await apiFetch<Challenge>(
+        `/api/challenges/${challenge.id}/publish`,
+        {
+          method: "POST",
+        }
+      );
+
+      router.push("/challenges");
+    } catch (error) {
+      console.error(error);
+      alert("Could not publish the challenge.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#f7f8fc]">
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex h-20 max-w-6xl items-center justify-between px-6">
-<Link href="/" className="flex items-center gap-3">
-  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black text-white">
-    <BrainCircuit size={21} />
-  </div>
+          <Link href="/" className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black text-white">
+              <BrainCircuit size={21} />
+            </div>
 
-  <span className="font-bold">AI Sana Challenge Hub</span>
-</Link>
+            <span className="font-bold">AI Sana Challenge Hub</span>
+          </Link>
 
           <span className="text-sm text-gray-500">Create challenge</span>
         </div>
       </header>
 
       <div className="mx-auto max-w-4xl px-6 py-16">
-<Link
-  href="/"
-  className="mb-10 inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-black"
->
-  <ArrowLeft size={16} />
-  Back
-</Link>
+        <Link
+          href="/"
+          className="mb-10 inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-black"
+        >
+          <ArrowLeft size={16} />
+          Back
+        </Link>
 
         {!analyzed ? (
           <>
@@ -73,6 +146,8 @@ function generateChallenge() {
               </h1>
 
               <p className="mt-5 max-w-2xl text-lg leading-8 text-gray-600">
+                Describe the problem in your own words. AI will help clarify it
+                and turn it into a structured challenge.
               </p>
             </div>
 
@@ -113,14 +188,21 @@ function generateChallenge() {
                 )}
               </button>
             </div>
-                    </>
+          </>
         ) : !generated ? (
           <AnalysisResult
+            challenge={challenge}
+            answers={answers}
+            setAnswers={setAnswers}
             onGenerate={generateChallenge}
             loading={loading}
           />
         ) : (
-          <GeneratedChallenge />
+          <GeneratedChallenge
+            challenge={challenge}
+            onPublish={publishChallenge}
+            loading={loading}
+          />
         )}
       </div>
     </main>
@@ -128,12 +210,22 @@ function generateChallenge() {
 }
 
 function AnalysisResult({
+  challenge,
+  answers,
+  setAnswers,
   onGenerate,
   loading,
 }: {
+  challenge: Challenge | null;
+  answers: Record<number, string>;
+  setAnswers: React.Dispatch<
+    React.SetStateAction<Record<number, string>>
+  >;
   onGenerate: () => void;
   loading: boolean;
 }) {
+  const score = challenge?.readiness_score ?? 0;
+
   return (
     <div>
       <div className="mb-10">
@@ -159,7 +251,7 @@ function AnalysisResult({
               Challenge readiness
             </p>
 
-            <p className="mt-1 text-3xl font-bold">43/100</p>
+            <p className="mt-1 text-3xl font-bold">{score}/100</p>
           </div>
 
           <span className="rounded-full bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-700">
@@ -168,53 +260,47 @@ function AnalysisResult({
         </div>
 
         <div className="mt-6 h-3 overflow-hidden rounded-full bg-gray-100">
-          <div className="h-full w-[43%] rounded-full bg-orange-500" />
+          <div
+            className="h-full rounded-full bg-orange-500"
+            style={{ width: `${score}%` }}
+          />
         </div>
       </div>
 
       <div className="space-y-5">
-        <Question
-          number={1}
-          question="Who is most affected by this problem?"
-          placeholder="Example: Our customer support department..."
-        />
-
-        <Question
-          number={2}
-          question="How is this problem currently handled?"
-          placeholder="Describe the current process..."
-        />
-
-        <Question
-          number={3}
-          question="What measurable result would make this project successful?"
-          placeholder="Example: Reduce manual processing time by 40%..."
-        />
-
-        <Question
-          number={4}
-          question="What constraints should student teams know about?"
-          placeholder="Timeline, budget, technologies, data access..."
-        />
+        {challenge?.questions.map((item, index) => (
+          <Question
+            key={item.id}
+            number={index + 1}
+            question={item.question}
+            value={answers[item.id] || ""}
+            onChange={(value) =>
+              setAnswers((previous) => ({
+                ...previous,
+                [item.id]: value,
+              }))
+            }
+          />
+        ))}
       </div>
 
       <button
-  onClick={onGenerate}
-  disabled={loading}
-  className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl bg-black py-4 font-semibold text-white transition hover:bg-gray-800 disabled:bg-gray-300"
->
-  {loading ? (
-    <>
-      <Loader2 className="animate-spin" size={19} />
-      Generating challenge...
-    </>
-  ) : (
-    <>
-      Generate challenge
-      <ArrowRight size={19} />
-    </>
-  )}
-</button>
+        onClick={onGenerate}
+        disabled={loading}
+        className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl bg-black py-4 font-semibold text-white transition hover:bg-gray-800 disabled:bg-gray-300"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="animate-spin" size={19} />
+            Generating challenge...
+          </>
+        ) : (
+          <>
+            Generate challenge
+            <ArrowRight size={19} />
+          </>
+        )}
+      </button>
     </div>
   );
 }
@@ -222,11 +308,13 @@ function AnalysisResult({
 function Question({
   number,
   question,
-  placeholder,
+  value,
+  onChange,
 }: {
   number: number;
   question: string;
-  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
 }) {
   return (
     <div className="rounded-[24px] border border-gray-200 bg-white p-6">
@@ -239,7 +327,9 @@ function Question({
           <label className="font-semibold">{question}</label>
 
           <textarea
-            placeholder={placeholder}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="Enter your answer..."
             className="mt-4 min-h-[100px] w-full resize-none rounded-xl border border-gray-200 bg-gray-50 p-4 outline-none transition focus:border-violet-500 focus:bg-white"
           />
         </div>
@@ -247,7 +337,18 @@ function Question({
     </div>
   );
 }
-function GeneratedChallenge() {
+
+function GeneratedChallenge({
+  challenge,
+  onPublish,
+  loading,
+}: {
+  challenge: Challenge | null;
+  onPublish: () => void;
+  loading: boolean;
+}) {
+  if (!challenge) return null;
+
   return (
     <div>
       <div className="mb-10">
@@ -266,7 +367,6 @@ function GeneratedChallenge() {
         </p>
       </div>
 
-      {/* SCORE */}
       <div className="mb-6 rounded-[28px] border border-gray-200 bg-white p-7 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
@@ -274,13 +374,9 @@ function GeneratedChallenge() {
               Challenge readiness
             </p>
 
-            <div className="mt-2 flex items-end gap-3">
-              <p className="text-4xl font-bold">89/100</p>
-
-              <span className="mb-1 text-sm font-semibold text-green-600">
-                +46 improvement
-              </span>
-            </div>
+            <p className="mt-2 text-4xl font-bold">
+              {challenge.readiness_score}/100
+            </p>
           </div>
 
           <span className="rounded-full bg-green-100 px-4 py-2 text-sm font-semibold text-green-700">
@@ -289,26 +385,28 @@ function GeneratedChallenge() {
         </div>
 
         <div className="mt-6 h-3 overflow-hidden rounded-full bg-gray-100">
-          <div className="h-full w-[89%] rounded-full bg-green-500" />
+          <div
+            className="h-full rounded-full bg-green-500"
+            style={{ width: `${challenge.readiness_score}%` }}
+          />
         </div>
       </div>
 
-      {/* CHALLENGE CARD */}
       <div className="rounded-[28px] border border-gray-200 bg-white p-8 shadow-sm">
         <div className="flex flex-col justify-between gap-6 border-b border-gray-100 pb-7 md:flex-row">
           <div>
             <div className="mb-4 flex flex-wrap gap-2">
-              <Tag>AI</Tag>
-              <Tag>Automation</Tag>
-              <Tag>Customer Support</Tag>
+              {challenge.recommended_skills.slice(0, 3).map((skill) => (
+                <Tag key={skill}>{skill}</Tag>
+              ))}
             </div>
 
             <h2 className="text-3xl font-bold tracking-tight">
-              AI-Powered Customer Support Automation
+              {challenge.title || "Untitled Challenge"}
             </h2>
 
             <p className="mt-3 text-gray-500">
-              Business Operations • AI Sana Challenge
+              AI Sana Business Challenge
             </p>
           </div>
 
@@ -317,47 +415,41 @@ function GeneratedChallenge() {
               Readiness
             </p>
 
-            <p className="mt-1 text-2xl font-bold text-violet-800">89/100</p>
+            <p className="mt-1 text-2xl font-bold text-violet-800">
+              {challenge.readiness_score}/100
+            </p>
           </div>
         </div>
 
         <Section
           title="Problem"
-          text="The customer support team spends several hours every day manually reviewing, categorizing and routing incoming customer requests. This creates delays and increases employee workload."
+          text={challenge.problem || "Not specified"}
         />
 
         <Section
           title="Goal"
-          text="Build an AI-assisted solution that automatically categorizes incoming support requests and routes them to the appropriate department."
+          text={challenge.goal || "Not specified"}
         />
 
         <Section
           title="Target users"
-          text="Customer support employees and operational managers."
+          text={challenge.target_users || "Not specified"}
         />
 
         <Section
           title="Expected result"
-          text="A functional prototype capable of processing incoming requests and assigning each request to an appropriate category."
+          text={challenge.expected_result || "Not specified"}
         />
 
         <div className="mt-8 grid gap-5 md:grid-cols-2">
           <InfoBox
             title="Success metrics"
-            items={[
-              "Reduce manual processing time by 40%",
-              "Classification accuracy above 85%",
-              "Average processing time below 5 seconds",
-            ]}
+            items={challenge.success_metrics}
           />
 
           <InfoBox
             title="Constraints"
-            items={[
-              "Use anonymized data only",
-              "Prototype must be web-based",
-              "Solution should expose an API",
-            ]}
+            items={challenge.constraints}
           />
         </div>
 
@@ -367,15 +459,12 @@ function GeneratedChallenge() {
           </p>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Skill>Python</Skill>
-            <Skill>AI / ML</Skill>
-            <Skill>NLP</Skill>
-            <Skill>FastAPI</Skill>
-            <Skill>React</Skill>
+            {challenge.recommended_skills.map((skill) => (
+              <Skill key={skill}>{skill}</Skill>
+            ))}
           </div>
         </div>
 
-        {/* AI QUALITY REVIEW */}
         <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50 p-6">
           <div className="flex gap-4">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white">
@@ -383,22 +472,14 @@ function GeneratedChallenge() {
             </div>
 
             <div className="w-full">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-bold text-violet-950">
-                    AI Quality Review
-                  </p>
+              <p className="font-bold text-violet-950">
+                AI Quality Review
+              </p>
 
-                  <p className="mt-1 text-sm text-violet-700">
-                    This challenge is clear enough for student teams to start
-                    working.
-                  </p>
-                </div>
-
-                <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-green-600">
-                  4/4 passed
-                </span>
-              </div>
+              <p className="mt-1 text-sm text-violet-700">
+                This challenge now contains a structured problem, target users,
+                measurable success criteria and expected outcome.
+              </p>
 
               <div className="mt-5 grid gap-3 md:grid-cols-2">
                 <ReviewItem text="Problem is specific" />
@@ -411,16 +492,30 @@ function GeneratedChallenge() {
         </div>
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <button className="flex-1 rounded-2xl border border-gray-200 px-6 py-4 font-semibold transition hover:bg-gray-50">
+          <button
+            type="button"
+            className="flex-1 rounded-2xl border border-gray-200 px-6 py-4 font-semibold transition hover:bg-gray-50"
+          >
             Edit challenge
           </button>
 
-         <Link
-  href="/challenges"
-  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black px-6 py-4 font-semibold text-white transition hover:bg-gray-800"
->
-  <ArrowRight size={19} />
-        </Link>
+          <button
+            onClick={onPublish}
+            disabled={loading}
+            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black px-6 py-4 font-semibold text-white transition hover:bg-gray-800 disabled:bg-gray-300"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" size={18} />
+                Publishing...
+              </>
+            ) : (
+              <>
+                Publish challenge
+                <ArrowRight size={19} />
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>
@@ -472,17 +567,21 @@ function InfoBox({
     <div className="rounded-2xl bg-gray-50 p-5">
       <p className="font-semibold">{title}</p>
 
-      <ul className="mt-4 space-y-3">
-        {items.map((item) => (
-          <li
-            key={item}
-            className="flex items-start gap-3 text-sm leading-6 text-gray-600"
-          >
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500" />
-            {item}
-          </li>
-        ))}
-      </ul>
+      {items.length > 0 ? (
+        <ul className="mt-4 space-y-3">
+          {items.map((item) => (
+            <li
+              key={item}
+              className="flex items-start gap-3 text-sm leading-6 text-gray-600"
+            >
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500" />
+              {item}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-gray-500">Not specified</p>
+      )}
     </div>
   );
 }

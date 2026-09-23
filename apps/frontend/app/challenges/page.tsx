@@ -1,113 +1,76 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   BrainCircuit,
   BriefcaseBusiness,
+  Loader2,
   Search,
   Sparkles,
   Users,
 } from "lucide-react";
 
-const challenges = [
-  {
-    id: 1,
-    title: "AI-Powered Customer Support Automation",
-    company: "Retail Company",
-    category: "AI",
-    description:
-      "Build an AI-assisted solution that automatically categorizes and routes incoming customer support requests.",
-    skills: ["Python", "AI / ML", "NLP", "FastAPI"],
-    readiness: 89,
-    applications: 6,
-  },
-  {
-    id: 2,
-    title: "University Energy Consumption Optimizer",
-    company: "Smart Campus",
-    category: "Energy",
-    description:
-      "Analyze building consumption data and propose a system that identifies energy waste and optimization opportunities.",
-    skills: ["Python", "Data Analysis", "ML"],
-    readiness: 94,
-    applications: 4,
-  },
-  {
-    id: 3,
-    title: "Cybersecurity Incident Prioritization",
-    company: "Digital Services",
-    category: "Cybersecurity",
-    description:
-      "Create a system that helps security teams prioritize incoming alerts using risk and business impact.",
-    skills: ["Cybersecurity", "Python", "AI"],
-    readiness: 82,
-    applications: 9,
-  },
-  {
-    id: 4,
-    title: "Student Dropout Risk Detection",
-    company: "Education Center",
-    category: "Education",
-    description:
-      "Develop a prototype that identifies students who may require early academic support.",
-    skills: ["Data Science", "Python", "ML"],
-    readiness: 91,
-    applications: 5,
-  },
-  {
-    id: 5,
-    title: "Intelligent Logistics Route Planning",
-    company: "Logistics Company",
-    category: "Logistics",
-    description:
-      "Improve delivery planning by considering distance, workload and operational constraints.",
-    skills: ["Algorithms", "Python", "Optimization"],
-    readiness: 86,
-    applications: 3,
-  },
-  {
-    id: 6,
-    title: "Document Processing Assistant",
-    company: "Business Services",
-    category: "AI",
-    description:
-      "Automatically extract and structure information from incoming business documents.",
-    skills: ["OCR", "NLP", "Python"],
-    readiness: 88,
-    applications: 7,
-  },
-];
+import { apiFetch, Challenge } from "@/lib/api";
 
-const categories = [
-  "All",
-  "AI",
-  "Education",
-  "Cybersecurity",
-  "Energy",
-  "Logistics",
-];
+const categories = ["All", "AI", "Python", "Data", "Cybersecurity"];
 
 export default function ChallengesPage() {
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
 
+  useEffect(() => {
+    async function loadChallenges() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const data = await apiFetch<Challenge[]>(
+          "/api/challenges?status=published"
+        );
+
+        setChallenges(data);
+      } catch (error) {
+        console.error(error);
+        setError("Could not load challenges.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadChallenges();
+  }, []);
+
   const filteredChallenges = useMemo(() => {
     return challenges.filter((challenge) => {
-      const matchesCategory =
-        category === "All" || challenge.category === category;
-
-      const query = search.toLowerCase();
+      const query = search.trim().toLowerCase();
 
       const matchesSearch =
-        challenge.title.toLowerCase().includes(query) ||
-        challenge.description.toLowerCase().includes(query) ||
-        challenge.skills.some((skill) => skill.toLowerCase().includes(query));
+        !query ||
+        (challenge.title || "").toLowerCase().includes(query) ||
+        (challenge.problem || "").toLowerCase().includes(query) ||
+        (challenge.raw_description || "").toLowerCase().includes(query) ||
+        challenge.recommended_skills.some((skill) =>
+          skill.toLowerCase().includes(query)
+        );
 
-      return matchesCategory && matchesSearch;
+      const matchesCategory =
+        category === "All" ||
+        challenge.recommended_skills.some((skill) =>
+          skill.toLowerCase().includes(category.toLowerCase())
+        ) ||
+        (challenge.title || "")
+          .toLowerCase()
+          .includes(category.toLowerCase());
+
+      return matchesSearch && matchesCategory;
     });
-  }, [search, category]);
+  }, [challenges, search, category]);
 
   return (
     <main className="min-h-screen bg-[#f7f8fc] text-gray-950">
@@ -206,23 +169,44 @@ export default function ChallengesPage() {
           <select className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none">
             <option>Recommended</option>
             <option>Highest readiness</option>
-            <option>Most applications</option>
           </select>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-          {filteredChallenges.map((challenge) => (
-            <ChallengeCard key={challenge.id} challenge={challenge} />
-          ))}
-        </div>
+        {loading && (
+          <div className="mt-10 rounded-[28px] border border-gray-200 bg-white py-16 text-center">
+            <Loader2
+              size={28}
+              className="mx-auto animate-spin text-violet-600"
+            />
 
-        {filteredChallenges.length === 0 && (
-          <div className="mt-8 rounded-[28px] border border-dashed border-gray-300 bg-white py-20 text-center">
-            <p className="text-lg font-semibold">No challenges found</p>
-            <p className="mt-2 text-gray-500">
-              Try another search or category.
-            </p>
+            <p className="mt-4 font-semibold">Loading challenges...</p>
           </div>
+        )}
+
+        {error && !loading && (
+          <div className="mt-10 rounded-[28px] border border-red-100 bg-red-50 py-12 text-center">
+            <p className="font-semibold text-red-700">{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            <div className="mt-6 grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+              {filteredChallenges.map((challenge) => (
+                <ChallengeCard key={challenge.id} challenge={challenge} />
+              ))}
+            </div>
+
+            {filteredChallenges.length === 0 && (
+              <div className="mt-8 rounded-[28px] border border-dashed border-gray-300 bg-white py-20 text-center">
+                <p className="text-lg font-semibold">No challenges found</p>
+
+                <p className="mt-2 text-gray-500">
+                  Try another search or category.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </section>
     </main>
@@ -232,59 +216,61 @@ export default function ChallengesPage() {
 function ChallengeCard({
   challenge,
 }: {
-  challenge: {
-    id: number;
-    title: string;
-    company: string;
-    category: string;
-    description: string;
-    skills: string[];
-    readiness: number;
-    applications: number;
-  };
+  challenge: Challenge;
 }) {
+  const previewSkills = challenge.recommended_skills.slice(0, 4);
+
   return (
     <article className="group flex h-full flex-col rounded-[26px] border border-gray-200 bg-white p-6 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/5">
       <div className="flex items-start justify-between gap-4">
         <span className="rounded-full bg-violet-100 px-3 py-1.5 text-xs font-bold text-violet-700">
-          {challenge.category}
+          Published
         </span>
 
         <div className="text-right">
           <p className="text-xs text-gray-400">Readiness</p>
+
           <p className="text-lg font-bold text-green-600">
-            {challenge.readiness}/100
+            {challenge.readiness_score}/100
           </p>
         </div>
       </div>
 
       <h2 className="mt-6 text-xl font-bold leading-snug tracking-tight">
-        {challenge.title}
+        {challenge.title || "Untitled Challenge"}
       </h2>
 
       <p className="mt-2 text-sm font-medium text-gray-400">
-        {challenge.company}
+        AI Sana Business Challenge
       </p>
 
       <p className="mt-5 flex-1 leading-7 text-gray-600">
-        {challenge.description}
+        {challenge.problem ||
+          challenge.raw_description ||
+          "No description available."}
       </p>
 
       <div className="mt-6 flex flex-wrap gap-2">
-        {challenge.skills.map((skill) => (
-          <span
-            key={skill}
-            className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600"
-          >
-            {skill}
+        {previewSkills.length > 0 ? (
+          previewSkills.map((skill) => (
+            <span
+              key={skill}
+              className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600"
+            >
+              {skill}
+            </span>
+          ))
+        ) : (
+          <span className="text-sm text-gray-400">
+            Skills not specified
           </span>
-        ))}
+        )}
       </div>
 
       <div className="mt-7 flex items-center justify-between border-t border-gray-100 pt-5">
         <div className="flex items-center gap-2 text-sm text-gray-500">
           <Users size={17} />
-          {challenge.applications} teams applied
+          Open for applications
         </div>
 
         <Link
