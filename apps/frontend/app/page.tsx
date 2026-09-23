@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   ArrowRight,
   BrainCircuit,
@@ -47,9 +48,12 @@ export default function Home() {
               Challenges
             </a>
 
-            <button className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800">
-              Open dashboard
-            </button>
+            <Link
+  href="/dashboard"
+  className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800"
+>
+  Open dashboard
+</Link>
           </nav>
         </div>
       </header>
@@ -77,18 +81,20 @@ export default function Home() {
             </p>
 
             <div className="mt-10 flex flex-col gap-4 sm:flex-row">
-              <a
-                href="/create"
-                className="flex items-center justify-center gap-2 rounded-2xl bg-black px-7 py-4 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-gray-800"
-              >
-                Create a challenge
+              <Link
+     href="/create"
+         className="flex items-center justify-center gap-2 ..."
+          >
                 <ArrowRight size={19} />
-              </a>
+            </Link>
 
-              <button className="rounded-2xl border border-gray-200 bg-white px-7 py-4 font-semibold transition hover:border-gray-300">
-                Explore challenges
-              </button>
-            </div>
+             <Link
+                href="/challenges"
+                className="rounded-2xl border border-gray-200 bg-white px-7 py-4 text-center font-semibold transition hover:border-gray-300"
+              >
+                    Explore challenges
+            </Link>
+          </div>
 
             <div className="mt-12 flex flex-wrap gap-7 text-sm text-gray-500">
               <div className="flex items-center gap-2">
