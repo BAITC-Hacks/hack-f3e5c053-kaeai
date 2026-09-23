@@ -12,6 +12,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _safe_error(error: Exception) -> str:
+    """Return a useful error without ever exposing a secret token."""
+    message = f"{type(error).__name__}: {error}"
+    return re.sub(r"(?:sk-|nvapi-)[A-Za-z0-9_-]+", "[redacted-token]", message)
+
+
 DIMENSIONS: dict[str, dict[str, Any]] = {
     "problem_clarity": {"keywords": (), "question": "What specific problem should the team solve, and where does it happen?"},
     "target_users": {"keywords": ("customer", "user", "client", "employee", "staff", "agent", "patient", "student", "клиент", "пользователь", "сотрудник"), "question": "Who are the main users or people affected by this problem?"},
@@ -138,6 +144,62 @@ def _clean_questions(questions: Any, limit: int = 6) -> list[str]:
     return cleaned[:limit]
 
 
+def _clean_string_list(value: Any, limit: int = 12) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        item = " ".join(item.split()).strip()
+        if item and item.casefold() not in seen:
+            seen.add(item.casefold())
+            result.append(item)
+    return result[:limit]
+
+
+def _normalise_result(result: Any, description: str, answers: dict[str, str] | None = None) -> dict[str, Any]:
+    """Make the model response safe and predictable for the frontend."""
+    if not isinstance(result, dict):
+        raise ValueError("The model returned a non-object JSON response")
+
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    challenge = result.get("challenge") if isinstance(result.get("challenge"), dict) else {}
+    fallback = _local_challenge(description, answers)
+    challenge_fields = (
+        "title", "problem", "goal", "target_users", "expected_result",
+        "success_metrics", "constraints", "recommended_skills", "tags", "quality_review",
+    )
+    for field in challenge_fields:
+        value = challenge.get(field)
+        if field in {"success_metrics", "constraints", "recommended_skills", "tags", "quality_review"}:
+            cleaned = _clean_string_list(value)
+            challenge[field] = cleaned or fallback[field]
+        elif isinstance(value, str) and value.strip():
+            challenge[field] = value.strip()
+        else:
+            challenge[field] = fallback[field]
+
+    score = result.get("score", 0)
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        score = 0
+    calculated_score = _score_from_analysis(analysis)
+    if 0 < score < 10 and calculated_score >= 10:
+        score = calculated_score
+    result["score"] = max(0, min(100, score or calculated_score))
+    result["missing_fields"] = _clean_string_list(result.get("missing_fields"), limit=10)
+    result["questions"] = _clean_questions(result.get("questions"))
+    if not result["questions"]:
+        language = _detect_language(description)
+        result["questions"] = [_question_for(name, language) for name in result["missing_fields"][:6]]
+    result["analysis"] = analysis
+    result["challenge"] = challenge
+    return result
+
+
 def _local_challenge(description: str, answers: dict[str, str] | None = None) -> dict[str, Any]:
     answers = answers or {}
     return {
@@ -181,7 +243,9 @@ def _score_from_analysis(analysis: dict[str, Any]) -> int:
 def _llm_analysis(description: str, provider: str, answers: dict[str, str] | None = None) -> dict[str, Any]:
     from openai import OpenAI
 
-    api_key = os.getenv("OPENAI_API_KEY") if provider == "openai" else os.getenv("NVIDIA_API_KEY")
+    # NVIDIA is intentionally not used by this integration. Keeping one provider
+    # avoids silently sending requests to a second API with incompatible output.
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(f"{provider.upper()}_API_KEY is not configured")
     model = os.getenv("OPENAI_MODEL", "gpt-4.1")
@@ -202,14 +266,29 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
     content = (response.choices[0].message.content or "{}").strip()
     if content.startswith("```"):
         content = content.strip("`").removeprefix("json").strip()
-    result = json.loads(content)
-    model_score = int(result.get("score", 0) or 0)
-    calculated_score = _score_from_analysis(result.get("analysis", {}))
-    result["score"] = calculated_score if 0 < model_score < 10 and calculated_score >= 10 else max(0, min(100, model_score or calculated_score))
-    result["missing_fields"] = result.get("missing_fields", [])
-    result["questions"] = _clean_questions(result.get("questions"))
-    result["analysis"] = result.get("analysis", {})
-    result["challenge"] = result.get("challenge") or _local_challenge(description, answers)
+    try:
+        result = json.loads(content)
+        result = _normalise_result(result, description, answers)
+    except (json.JSONDecodeError, ValueError, TypeError) as error:
+        # One repair request handles occasional truncated or markdown-wrapped JSON.
+        repair_request = dict(request)
+        repair_request["messages"] = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Return only valid JSON for this challenge.\n\n{user_prompt}"},
+        ]
+        repair_response = client.chat.completions.create(**repair_request)
+        repaired = (repair_response.choices[0].message.content or "{}").strip().strip("`").removeprefix("json").strip()
+        result = _normalise_result(json.loads(repaired), description, answers)
+        logger.warning("Repaired malformed model response after %s", type(error).__name__)
+        response = repair_response
+    usage = getattr(response, "usage", None)
+    if usage:
+        result["usage"] = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+        }
+    result["model"] = model
     result["provider"] = provider
     return result
 
@@ -223,10 +302,11 @@ def analyze_problem(description: str) -> dict[str, Any]:
             logger.exception("AI analysis failed for provider=%s", provider)
             result = _local_analysis(description)
             result["provider"] = "local-fallback"
-            result["provider_error"] = f"{type(error).__name__}: {error}"
+            result["provider_error"] = _safe_error(error)
             return result
     result = _local_analysis(description)
     result["provider"] = "local"
+    result["provider_error"] = "Unsupported AI_PROVIDER; using local fallback. Set AI_PROVIDER=openai."
     return result
 
 
@@ -240,9 +320,10 @@ def generate_challenge(description: str, answers: dict[str, str]) -> dict[str, A
             result = _local_analysis(description)
             result["challenge"] = _local_challenge(description, answers)
             result["provider"] = "local-fallback"
-            result["provider_error"] = f"{type(error).__name__}: {error}"
+            result["provider_error"] = _safe_error(error)
             return result
     result = _local_analysis(description)
     result["challenge"] = _local_challenge(description, answers)
     result["provider"] = "local"
+    result["provider_error"] = "Unsupported AI_PROVIDER; using local fallback. Set AI_PROVIDER=openai."
     return result
