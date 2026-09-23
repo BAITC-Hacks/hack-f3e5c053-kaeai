@@ -25,6 +25,17 @@ export type Challenge = {
   updated_at: string;
 };
 
+export type Application = {
+  id: number;
+  challenge_id: number;
+  team_name: string;
+  team_description: string;
+  contact: string;
+  message: string;
+  status: "pending" | "selected" | "rejected";
+  created_at: string;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -54,4 +65,28 @@ export function generateChallenge(challengeId: number) {
 
 export function publishChallenge(challengeId: number) {
   return request<Challenge>(`/api/challenges/${challengeId}/publish`, { method: "POST" });
+}
+
+export function apiFetch<T>(path: string, options: RequestInit = {}) {
+  return request<T>(path, options);
+}
+
+export function getChallenge(challengeId: string | number) {
+  return request<Challenge>(`/api/challenges/${challengeId}`);
+}
+
+export function listChallenges() {
+  return request<Challenge[]>("/api/challenges?status=published");
+}
+
+export function getApplications(challengeId: string | number) {
+  return request<Application[]>(`/api/challenges/${challengeId}/applications`);
+}
+
+export function createApplication(challengeId: string | number, payload: Omit<Application, "id" | "challenge_id" | "status" | "created_at">) {
+  return request<Application>(`/api/challenges/${challengeId}/applications`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function selectApplication(applicationId: number) {
+  return request<Application>(`/api/applications/${applicationId}/select`, { method: "POST" });
 }

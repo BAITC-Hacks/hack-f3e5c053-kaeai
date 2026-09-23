@@ -1,7 +1,43 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class UserRegister(BaseModel):
+    full_name: str = Field(min_length=2, max_length=255)
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+    role: Literal["business", "student"]
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if "@" not in normalized:
+            raise ValueError("Invalid email address")
+        return normalized
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    full_name: str
+    email: str
+    role: Literal["business", "student"]
+    created_at: datetime
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    user: UserResponse
 
 
 class QuestionAnswer(BaseModel):
@@ -41,6 +77,7 @@ class ChallengeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    owner_id: int | None
     raw_description: str
     title: str | None
     problem: str | None
@@ -69,4 +106,6 @@ class ApplicationResponse(ApplicationCreate):
 
     id: int
     challenge_id: int
+    student_id: int | None
+    status: Literal["pending", "selected", "rejected"]
     created_at: datetime

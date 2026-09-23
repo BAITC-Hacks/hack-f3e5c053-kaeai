@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_minutes: int = 1440
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
