@@ -1,11 +1,15 @@
-"""AI challenge analysis with local, OpenAI and NVIDIA providers."""
+"""AI challenge analysis with OpenAI and a local fallback."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 DIMENSIONS: dict[str, dict[str, Any]] = {
@@ -87,12 +91,8 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
     api_key = os.getenv("OPENAI_API_KEY") if provider == "openai" else os.getenv("NVIDIA_API_KEY")
     if not api_key:
         raise RuntimeError(f"{provider.upper()}_API_KEY is not configured")
-    if provider == "openai":
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        base_url = os.getenv("OPENAI_BASE_URL") or None
-    else:
-        model = os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
-        base_url = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1")
+    base_url = os.getenv("OPENAI_BASE_URL") or None
 
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=float(os.getenv("AI_TIMEOUT_SECONDS", "30")))
     user_prompt = f"Business problem:\n{description}"
@@ -103,8 +103,7 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}],
         "temperature": 0.2,
     }
-    if provider == "openai":
-        request["response_format"] = {"type": "json_object"}
+    request["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**request)
     content = (response.choices[0].message.content or "{}").strip()
     if content.startswith("```"):
@@ -120,13 +119,15 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
 
 
 def analyze_problem(description: str) -> dict[str, Any]:
-    provider = os.getenv("AI_PROVIDER", "local").lower()
-    if provider in {"openai", "nvidia"}:
+    provider = os.getenv("AI_PROVIDER", "openai").lower()
+    if provider == "openai":
         try:
             return _llm_analysis(description, provider)
-        except Exception:
+        except Exception as error:
+            logger.exception("AI analysis failed for provider=%s", provider)
             result = _local_analysis(description)
             result["provider"] = "local-fallback"
+            result["provider_error"] = f"{type(error).__name__}: {error}"
             return result
     result = _local_analysis(description)
     result["provider"] = "local"
@@ -134,13 +135,18 @@ def analyze_problem(description: str) -> dict[str, Any]:
 
 
 def generate_challenge(description: str, answers: dict[str, str]) -> dict[str, Any]:
-    provider = os.getenv("AI_PROVIDER", "local").lower()
-    if provider in {"openai", "nvidia"}:
+    provider = os.getenv("AI_PROVIDER", "openai").lower()
+    if provider == "openai":
         try:
             return _llm_analysis(description, provider, answers)
-        except Exception:
-            pass
+        except Exception as error:
+            logger.exception("AI challenge generation failed for provider=%s", provider)
+            result = _local_analysis(description)
+            result["challenge"] = _local_challenge(description, answers)
+            result["provider"] = "local-fallback"
+            result["provider_error"] = f"{type(error).__name__}: {error}"
+            return result
     result = _local_analysis(description)
     result["challenge"] = _local_challenge(description, answers)
-    result["provider"] = "local-fallback" if provider in {"openai", "nvidia"} else "local"
+    result["provider"] = "local"
     return result

@@ -6,3 +6,5 @@
 **/.next/
 **/node_modules/
 *.pyc
+.vscode/
+hack-f3e5c053-kaeai/

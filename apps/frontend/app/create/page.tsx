@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, BrainCircuit, Loader2, Sparkles } from "lucide-react";
 
-type Analysis = { score: number; missing_fields: string[]; questions: string[]; provider?: string; challenge?: Challenge };
+type Analysis = { score: number; missing_fields: string[]; questions: string[]; provider?: string; provider_error?: string; challenge?: Challenge };
 type Challenge = { title: string; problem: string; goal: string; target_users: string; expected_result: string; success_metrics: string[]; constraints: string[]; recommended_skills: string[]; tags: string[]; quality_review: string[] };
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -40,6 +40,7 @@ export default function CreateChallenge() {
     <div className="mx-auto max-w-4xl px-6 py-16"><Link href="/" className="mb-10 inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-black"><ArrowLeft size={16} /> Back</Link>
       {!analysis ? <InputStep description={description} setDescription={setDescription} onAnalyze={analyzeProblem} loading={loading} /> : !challenge ? <AnalysisStep analysis={analysis} answers={answers} setAnswers={setAnswers} onGenerate={generateChallenge} loading={loading} /> : <ChallengeStep challenge={challenge} score={analysis.score} provider={analysis.provider} />}
       {error && <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+      {analysis?.provider_error && <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">AI provider не ответил, поэтому показан резервный результат. Проверьте OPENAI_API_KEY и OPENAI_MODEL в ai-logic/.env.</div>}
     </div>
   </main>;
 }
