@@ -10,6 +10,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -47,9 +48,9 @@ export default function Home() {
               Challenges
             </a>
 
-            <button className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800">
+            <Link href="/dashboard" className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white transition hover:bg-gray-800">
               Open dashboard
-            </button>
+            </Link>
           </nav>
         </div>
       </header>
@@ -85,9 +86,9 @@ export default function Home() {
                 <ArrowRight size={19} />
               </a>
 
-              <button className="rounded-2xl border border-gray-200 bg-white px-7 py-4 font-semibold transition hover:border-gray-300">
+              <Link href="/challenges" className="rounded-2xl border border-gray-200 bg-white px-7 py-4 font-semibold transition hover:border-gray-300">
                 Explore challenges
-              </button>
+              </Link>
             </div>
 
             <div className="mt-12 flex flex-wrap gap-7 text-sm text-gray-500">
