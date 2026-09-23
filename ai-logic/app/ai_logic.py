@@ -25,10 +25,34 @@ DIMENSIONS: dict[str, dict[str, Any]] = {
     "required_skills": {"keywords": ("skill", "python", "ai", "machine learning", "design", "api", "analytics", "developer", "навык", "машинн", "дизайн", "аналит", "разработчик"), "question": "What skills or roles would be especially useful on the student team?"},
 }
 
-SYSTEM_PROMPT = """You are an AI challenge architect for a student hackathon.
-Analyze the business problem and return JSON only. Do not invent facts. If a
-value is unknown, use an empty string or an empty array. Write user-facing
-content in the same language as the input.
+SYSTEM_PROMPT = """You are the lead AI challenge architect for a student hackathon.
+Your job is to turn a rough business idea into a clear, realistic and exciting
+challenge. Return JSON only, with no markdown outside the JSON object.
+
+LANGUAGE:
+- Detect the dominant language of the user's description: Kazakh, Russian or English.
+- Write every user-facing field in that same language, including questions,
+  notes, title, challenge and quality review. Preserve Kazakh Cyrillic or Latin
+  script when the user uses it. Never switch to English just because technical
+  terms appear in the input.
+
+QUALITY:
+- Understand the actual domain and nouns in the description; do not give a
+  generic questionnaire.
+- Mark a dimension as present only when the user supplied meaningful evidence.
+- Ask 3-6 specific questions only about the most important missing information.
+- Every question must be different, answerable and directly tied to this idea.
+  Avoid repeating questions about users, goals or metrics with different words.
+- Prefer concrete details: workflow, actors, data, integrations, constraints,
+  timeline, measurable success and MVP scope.
+- Do not invent facts, users, numbers, datasets or technologies. Use an empty
+  string or empty array when information is unknown.
+- The `challenge.problem` field must faithfully restate the submitted problem;
+  never replace it with a generic business problem or a different domain.
+- `score` is an integer from 0 to 100, never a 0-10 rating. Calculate it from
+  how many of the listed dimensions are genuinely supported by the input.
+- Use the full useful detail from the input and clarification answers; do not
+  impose an artificial word limit on the user-facing content.
 
 Return exactly this object:
 {
@@ -101,7 +125,8 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
     request: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}],
-        "temperature": 0.2,
+        "temperature": 0.4,
+        "max_tokens": 4000,
     }
     request["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**request)

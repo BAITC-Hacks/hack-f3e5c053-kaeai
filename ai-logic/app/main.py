@@ -23,11 +23,11 @@ app.add_middleware(
 
 
 class AnalyzeRequest(BaseModel):
-    description: str = Field(..., min_length=10, max_length=5000)
+    description: str = Field(..., min_length=10, max_length=12000)
 
 
 class GenerateRequest(BaseModel):
-    description: str = Field(..., min_length=10, max_length=5000)
+    description: str = Field(..., min_length=10, max_length=12000)
     answers: dict[str, str] = Field(default_factory=dict)
 
 
