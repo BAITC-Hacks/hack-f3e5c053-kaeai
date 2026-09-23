@@ -259,7 +259,8 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
     base_url = os.getenv("OPENAI_BASE_URL") or None
 
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=float(os.getenv("AI_TIMEOUT_SECONDS", "30")))
-    user_prompt = f"Business problem:\n{description}"
+    language_name = {"en": "English", "ru": "Russian", "kk": "Kazakh"}[_detect_language(description)]
+    user_prompt = f"Required language for every user-facing field: {language_name}.\nBusiness problem:\n{description}"
     if answers:
         user_prompt += "\n\nClarification answers:\n" + json.dumps(answers, ensure_ascii=False)
     request: dict[str, Any] = {
@@ -276,12 +277,14 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
     try:
         result = json.loads(content)
         result = _normalise_result(result, description, answers)
+        if _detect_language(description) == "en" and re.search(r"[\u0400-\u04ff]", result["challenge"]["title"]):
+            raise ValueError("Model used the wrong response language")
     except (json.JSONDecodeError, ValueError, TypeError) as error:
         # One repair request handles occasional truncated or markdown-wrapped JSON.
         repair_request = dict(request)
         repair_request["messages"] = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Return only valid JSON for this challenge.\n\n{user_prompt}"},
+            {"role": "user", "content": f"Return only valid JSON. Follow the required response language exactly.\n\n{user_prompt}"},
         ]
         repair_response = client.chat.completions.create(**repair_request)
         repaired = (repair_response.choices[0].message.content or "{}").strip().strip("`").removeprefix("json").strip()
@@ -355,21 +358,37 @@ def translate_challenge(challenge: dict[str, Any], target_language: str) -> dict
     system = f"Translate every user-facing value in this challenge to {language}. Preserve JSON keys, arrays and meaning. Return exactly {{\"challenge\": {{...translated challenge...}}}} as JSON."
     try:
         result = _openai_json(system, json.dumps(challenge, ensure_ascii=False), max_tokens=3000)
-        result["challenge"] = result.get("challenge", result)
+        translated = result.get("challenge")
+        if not isinstance(translated, dict):
+            translated = {key: value for key, value in result.items() if key in challenge}
+        result["challenge"] = translated
         return result
     except Exception as error:
         logger.exception("AI challenge translation failed")
         return {"challenge": challenge, "provider": "local-fallback", "provider_error": _safe_error(error)}
 
 
-def regenerate_questions(description: str, answers: dict[str, str] | None = None) -> dict[str, Any]:
+def regenerate_questions(description: str, answers: dict[str, str] | None = None, previous_questions: list[str] | None = None) -> dict[str, Any]:
     """Generate a fresh, non-repeating set of clarifying questions."""
     answers = answers or {}
-    key = _cache_key("questions", {"description": description, "answers": answers})
+    previous_questions = previous_questions or []
+    key = _cache_key("questions", {"description": description, "answers": answers, "previous_questions": previous_questions})
     if key in _RESPONSE_CACHE:
         return {**_RESPONSE_CACHE[key], "cached": True}
-    result = analyze_problem(description)
-    result["questions"] = _clean_questions(result.get("questions"))
+    previous = {question.casefold().strip() for question in previous_questions}
+    language = {"en": "English", "ru": "Russian", "kk": "Kazakh"}[_detect_language(description)]
+    try:
+        result = _openai_json(
+            f'Return JSON with exactly one key: {{"questions": ["..."]}}. Write 3-6 specific, distinct clarifying questions in {language}. Do not repeat any previous question.',
+            f'Original idea:\n{description}\n\nAnswers so far:\n{json.dumps(answers, ensure_ascii=False)}\n\nPrevious questions to replace:\n{json.dumps(previous_questions, ensure_ascii=False)}',
+            max_tokens=900,
+        )
+    except Exception as error:
+        logger.exception("AI question regeneration failed")
+        result = {"provider": "local-fallback", "provider_error": _safe_error(error), "questions": _local_analysis(description)["questions"]}
+    result["questions"] = [question for question in _clean_questions(result.get("questions")) if question.casefold().strip() not in previous]
+    if not result["questions"]:
+        result["questions"] = [question for question in _local_analysis(description)["questions"] if question.casefold().strip() not in previous][:6]
     result["cached"] = False
     _RESPONSE_CACHE[key] = result
     return result

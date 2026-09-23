@@ -22,11 +22,11 @@ app.add_middleware(
 
 
 class AnalyzeRequest(BaseModel):
-    description: str = Field(..., min_length=10, max_length=5000)
+    description: str = Field(..., min_length=10, max_length=12000)
 
 
 class GenerateRequest(BaseModel):
-    description: str = Field(..., min_length=10, max_length=5000)
+    description: str = Field(..., min_length=10, max_length=12000)
     answers: dict[str, str] = Field(default_factory=dict)
 
 
@@ -44,6 +44,7 @@ class TranslateRequest(BaseModel):
 class QuestionsRequest(BaseModel):
     description: str = Field(..., min_length=10, max_length=12000)
     answers: dict[str, str] = Field(default_factory=dict)
+    previous_questions: list[str] = Field(default_factory=list, max_length=6)
 
 
 class ReviewRequest(BaseModel):
@@ -83,7 +84,7 @@ def translate(request: TranslateRequest) -> dict:
 
 @app.post("/api/questions")
 def questions(request: QuestionsRequest) -> dict:
-    return regenerate_questions(request.description, request.answers)
+    return regenerate_questions(request.description, request.answers, request.previous_questions)
 
 
 @app.post("/api/review")
