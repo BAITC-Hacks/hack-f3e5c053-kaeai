@@ -415,10 +415,12 @@ function GeneratedChallenge() {
             Edit challenge
           </button>
 
-          <button className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black px-6 py-4 font-semibold text-white transition hover:bg-gray-800">
-            Publish challenge
-            <ArrowRight size={19} />
-          </button>
+         <Link
+  href="/challenges"
+  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black px-6 py-4 font-semibold text-white transition hover:bg-gray-800"
+>
+  <ArrowRight size={19} />
+        </Link>
         </div>
       </div>
     </div>
