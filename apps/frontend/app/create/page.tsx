@@ -162,7 +162,7 @@ export default function CreateChallenge() {
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="Example: Our customer support team spends several hours every day manually categorizing incoming requests..."
-                className="mt-5 min-h-[220px] w-full resize-none rounded-2xl border border-gray-200 bg-gray-50 p-5 text-base leading-7 outline-none transition focus:border-violet-500 focus:bg-white"
+                className="mt-5 min-h-[220px] w-full resize-none rounded-2xl border border-gray-200 bg-white p-5 text-base font-medium leading-7 text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
               />
 
               <div className="mt-3 flex justify-between text-sm text-gray-400">

@@ -34,22 +34,53 @@ export type Application = {
   created_at: string;
 };
 
+export type AuthUser = {
+  id: number;
+  full_name: string;
+  email: string;
+  role: "business" | "student";
+  created_at: string;
+};
+
+export type LoginResponse = {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+};
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("access_token")
+      : null;
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {}),
       ...options.headers,
     },
   });
 
+  const text = await response.text();
+
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || `Request failed: ${response.status}`);
+    throw new Error(
+      text || `Request failed: ${response.status}`
+    );
   }
 
-  return response.json();
+  if (!text) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 }
