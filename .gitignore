@@ -1,0 +1,41 @@
+# Виртуальные окружения (чтобы .venv не попадал в Git)
+.venv/
+venv/
+ENV/
+env/
+
+# Кэш Python и скомпилированные файлы
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Файлы переменных окружения (секреты, ключи API, пароли к БД)
+.env
+.env.local
+.env.*.local
+
+# Настройки IDE и редакторов
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Базы данных и миграции (SQLite / временные файлы)
+*.sqlite3
+*.db
+
+# Тесты, кэш pytest и покрытия кода
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Логи и временные файлы ОС
+*.log
+.DS_Store
+Thumbs.db
+
+# Node dependencies and build output
+node_modules/
+**/node_modules/
+.next/
+**/.next/
