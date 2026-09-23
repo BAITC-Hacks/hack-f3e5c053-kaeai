@@ -7,7 +7,7 @@ from .config import get_settings
 from .database import Base, engine
 from .routes import applications, challenges
 
-
+print('')
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
