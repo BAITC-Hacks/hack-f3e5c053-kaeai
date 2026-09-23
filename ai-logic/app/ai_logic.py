@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -10,12 +11,18 @@ from typing import Any
 
 
 logger = logging.getLogger(__name__)
+_RESPONSE_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _safe_error(error: Exception) -> str:
     """Return a useful error without ever exposing a secret token."""
     message = f"{type(error).__name__}: {error}"
     return re.sub(r"(?:sk-|nvapi-)[A-Za-z0-9_-]+", "[redacted-token]", message)
+
+
+def _cache_key(action: str, payload: Any) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(f"{action}:{encoded}".encode("utf-8")).hexdigest()
 
 
 DIMENSIONS: dict[str, dict[str, Any]] = {
@@ -291,6 +298,100 @@ def _llm_analysis(description: str, provider: str, answers: dict[str, str] | Non
     result["model"] = model
     result["provider"] = provider
     return result
+
+
+def _openai_json(system_prompt: str, user_prompt: str, max_tokens: int = 3000) -> dict[str, Any]:
+    """Run a small structured OpenAI request for secondary AI actions."""
+    from openai import OpenAI
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1")
+    client = OpenAI(
+        api_key=api_key,
+        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        timeout=float(os.getenv("AI_TIMEOUT_SECONDS", "30")),
+    )
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+        temperature=0.3,
+        max_tokens=max_tokens,
+        response_format={"type": "json_object"},
+    )
+    content = (response.choices[0].message.content or "{}").strip().strip("`").removeprefix("json").strip()
+    result = json.loads(content)
+    if not isinstance(result, dict):
+        raise ValueError("The model returned a non-object JSON response")
+    result["provider"] = "openai"
+    result["model"] = model
+    usage = getattr(response, "usage", None)
+    if usage:
+        result["usage"] = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+        }
+    return result
+
+
+def improve_challenge(description: str, challenge: dict[str, Any], instruction: str = "Improve clarity and make the MVP more actionable.") -> dict[str, Any]:
+    prompt = f"""Original problem:\n{description}\n\nCurrent challenge JSON:\n{json.dumps(challenge, ensure_ascii=False)}\n\nImprovement request:\n{instruction}"""
+    system = SYSTEM_PROMPT + "\n\nImprove the existing challenge without changing its domain or inventing facts. Return the same JSON schema."
+    try:
+        result = _openai_json(system, prompt, max_tokens=4000)
+        return _normalise_result(result, description)
+    except Exception as error:
+        logger.exception("AI challenge improvement failed")
+        return {"challenge": challenge, "provider": "local-fallback", "provider_error": _safe_error(error)}
+
+
+def translate_challenge(challenge: dict[str, Any], target_language: str) -> dict[str, Any]:
+    languages = {"ru": "Russian", "kk": "Kazakh", "en": "English"}
+    language = languages.get(target_language)
+    if not language:
+        raise ValueError("target_language must be ru, kk or en")
+    system = f"Translate every user-facing value in this challenge to {language}. Preserve JSON keys, arrays and meaning. Return exactly {{\"challenge\": {{...translated challenge...}}}} as JSON."
+    try:
+        result = _openai_json(system, json.dumps(challenge, ensure_ascii=False), max_tokens=3000)
+        result["challenge"] = result.get("challenge", result)
+        return result
+    except Exception as error:
+        logger.exception("AI challenge translation failed")
+        return {"challenge": challenge, "provider": "local-fallback", "provider_error": _safe_error(error)}
+
+
+def regenerate_questions(description: str, answers: dict[str, str] | None = None) -> dict[str, Any]:
+    """Generate a fresh, non-repeating set of clarifying questions."""
+    answers = answers or {}
+    key = _cache_key("questions", {"description": description, "answers": answers})
+    if key in _RESPONSE_CACHE:
+        return {**_RESPONSE_CACHE[key], "cached": True}
+    result = analyze_problem(description)
+    result["questions"] = _clean_questions(result.get("questions"))
+    result["cached"] = False
+    _RESPONSE_CACHE[key] = result
+    return result
+
+
+def review_challenge(description: str, challenge: dict[str, Any]) -> dict[str, Any]:
+    """Score challenge readiness and identify concrete risks before publishing."""
+    key = _cache_key("review", {"description": description, "challenge": challenge})
+    if key in _RESPONSE_CACHE:
+        return {**_RESPONSE_CACHE[key], "cached": True}
+    system = '''You are a strict hackathon challenge reviewer. Return JSON only:
+{"overall_score": 0, "scores": {"clarity": 0, "specificity": 0, "feasibility": 0, "measurability": 0, "mvp_scope": 0}, "strengths": [], "risks": [], "recommended_fixes": []}.
+Use integers from 0 to 100. Write in the dominant language of the input. Do not invent facts.'''
+    prompt = f"Problem:\n{description}\n\nChallenge:\n{json.dumps(challenge, ensure_ascii=False)}"
+    try:
+        result = _openai_json(system, prompt, max_tokens=1800)
+        result["cached"] = False
+        _RESPONSE_CACHE[key] = result
+        return result
+    except Exception as error:
+        logger.exception("AI challenge review failed")
+        return {"overall_score": 0, "scores": {}, "strengths": [], "risks": ["Quality review unavailable"], "recommended_fixes": [], "provider": "local-fallback", "provider_error": _safe_error(error)}
 
 
 def analyze_problem(description: str) -> dict[str, Any]:
